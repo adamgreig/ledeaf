@@ -5,6 +5,13 @@
   )
 
   (paper "A4")
+  (title_block
+    (title "LEDEAF Triangle PCB")
+    (date "2021-05-23")
+    (rev "1")
+    (comment 1 "Drawn By: AG")
+  )
+
   (layers
     (0 "F.Cu" signal)
     (31 "B.Cu" signal)

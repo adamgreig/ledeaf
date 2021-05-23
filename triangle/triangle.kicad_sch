@@ -4,6 +4,13 @@
 
   (paper "A4")
 
+  (title_block
+    (title "LEDEAF Triangle PCB")
+    (date "2021-05-23")
+    (rev "1")
+    (comment 1 "Drawn By: AG")
+  )
+
   (lib_symbols
     (symbol "ael:5v" (power) (pin_numbers hide) (pin_names (offset 1.016) hide) (in_bom yes) (on_board yes)
       (property "Reference" "#PWR" (id 0) (at 0 2.794 0)

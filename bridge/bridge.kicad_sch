@@ -4,6 +4,13 @@
 
   (paper "A4")
 
+  (title_block
+    (title "LEDEAF Bridge PCB")
+    (date "2021-05-23")
+    (rev "1")
+    (comment 1 "Drawn By: AG")
+  )
+
   (lib_symbols
     (symbol "ael:CONN_01x01" (pin_names (offset 0.0254) hide) (in_bom yes) (on_board yes)
       (property "Reference" "J" (id 0) (at -1.27 2.54 0)
