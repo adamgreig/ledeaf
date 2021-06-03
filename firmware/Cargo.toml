@@ -1,0 +1,23 @@
+[package]
+name = "ledeaf"
+version = "0.1.0"
+authors = ["Adam Greig <adam@adamgreig.com>"]
+edition = "2018"
+
+[dependencies]
+cortex-m = "0.7.2"
+cortex-m-rt = "0.6.14"
+panic-halt = "0.2.0"
+embedded-hal = "0.2"
+smart-leds = "0.3.0"
+ws2812-spi = "0.4.0"
+
+[dependencies.stm32f4xx-hal]
+version = "0.9"
+features = ["rt", "stm32f411"]
+
+[profile.release]
+codegen-units = 1
+incremental = false
+debug = true
+lto = true
