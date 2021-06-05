@@ -25,8 +25,11 @@ fn main() -> ! {
         const BRIGHTNESS: u8 = 255;
 
         loop {
+            // Run through 25 colours (0 to 250 into the colour wheel).
             for i in 0..25 {
                 let drop = wheel(i * 10);
+
+                // Pulse the colour along the LED chain excluding the final LED.
                 for led in 0..11 {
                     for j in 0..11 {
                         if j == led {
@@ -38,21 +41,18 @@ fn main() -> ! {
                     ws.write(brightness(data.iter().cloned(), BRIGHTNESS)).unwrap();
                     delay.delay_ms(50u8);
                 }
+
+                // Now load the colour into the final LED.
                 data[10] = RGB8::default();
                 data[11] = drop;
                 ws.write(brightness(data.iter().cloned(), BRIGHTNESS)).unwrap();
                 delay.delay_ms(50u8);
 
+                // Fade out the colour in the final LED.
                 for _ in 0..=255 {
-                    if data[11].r > 0 {
-                        data[11].r -= 1;
-                    }
-                    if data[11].g > 0 {
-                        data[11].g -= 1;
-                    }
-                    if data[11].b > 0 {
-                        data[11].b -= 1;
-                    }
+                    data[11].r = data[11].r.saturating_sub(1);
+                    data[11].g = data[11].g.saturating_sub(1);
+                    data[11].b = data[11].b.saturating_sub(1);
                     ws.write(brightness(data.iter().cloned(), BRIGHTNESS)).unwrap();
                     delay.delay_ms(1u8);
                 }
@@ -62,6 +62,7 @@ fn main() -> ! {
     loop {}
 }
 
+// Colour wheel from https://github.com/smart-leds-rs/smart-leds-samples
 fn wheel(mut wheel_pos: u8) -> RGB8 {
     wheel_pos = 255 - wheel_pos;
     if wheel_pos < 85 {
