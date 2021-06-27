@@ -17,6 +17,10 @@ use choreographer::engine::{LoopBehavior, Sequence, ActionBuilder};
 use groundhog::RollingTimer;
 use rtt_target::{rtt_init_print, rprintln};
 
+mod ir;
+
+use ir::Decoder as IRDecoder;
+
 /// Number of LED triangles to drive.
 const N_LEDS: usize = 9;
 
@@ -31,8 +35,7 @@ fn main() -> ! {
     // Set up STM32 and peripherals.
     rtt_init_print!();
     let dp = stm32::Peripherals::take().unwrap();
-    let cp = cortex_m::Peripherals::take().unwrap();
-    dp.RCC.apb1enr.modify(|_, w| w.tim3en().enabled());
+    dp.RCC.apb1enr.modify(|_, w| w.tim3en().enabled().tim5en().enabled());
     let rcc = dp.RCC.constrain();
     let clocks = rcc.cfgr.use_hse(20.mhz()).sysclk(48.mhz()).freeze();
     let gpiob = dp.GPIOB.split();
@@ -40,10 +43,10 @@ fn main() -> ! {
     let _ir = gpiob.pb4.into_alternate_af2();
     let spi = Spi::spi1(dp.SPI1, (NoSck, NoMiso, led), ws2812_spi::MODE, 3_000_000.hz(), clocks);
     let mut ws = Ws2812::new(spi);
-    Timer::setup(cp.SYST);
 
-    // Set up TIM3 CH1 for IR pulse capture.
+    // Set up TIM3 CH1 for IR pulse capture, and TIM5 to provide a timebase.
     setup_tim3(&clocks, &dp.TIM3);
+    setup_tim5(&clocks, &dp.TIM5);
 
     // Storage for LED patterns.
     let mut leds: [Sequence<Timer, {N_SPOKES * 2}>; N_LEDS] = Sequence::new_array();
@@ -99,6 +102,7 @@ fn main() -> ! {
     }
 }
 
+/// Configure TIM3 to capture rising and falling edges from an IR receiver.
 fn setup_tim3(clocks: &stm32f4xx_hal::rcc::Clocks, tim3: &stm32::TIM3) {
     // Enable interrupt on update, CC1, and CC2.
     tim3.dier.write(|w| w.uie().enabled().cc1ie().enabled().cc2ie().enabled());
@@ -117,162 +121,32 @@ fn setup_tim3(clocks: &stm32f4xx_hal::rcc::Clocks, tim3: &stm32::TIM3) {
     let psc = (clocks.pclk1().0 / 1_000_000) as u16;
     tim3.psc.write(|w| w.psc().bits(psc - 1));
 
+    // Trigger update event.
+    tim3.egr.write(|w| w.ug().update());
+
     // Enable counter, and set URS=1 to only generate updates on overflow,
     // not on slave-mode resets.
     tim3.cr1.write(|w| w.cen().enabled().urs().counter_only());
 }
 
-#[derive(Copy, Clone, Debug)]
-#[repr(u8)]
-enum IRCommand {
-    On          = 0xBA,
-    Off         = 0xB8,
-    Timer       = 0xB9,
-    Mode1       = 0xBB,
-    Mode2       = 0xBC,
-    Mode3       = 0xF8,
-    Mode4       = 0xF6,
-    Mode5       = 0xE9,
-    Mode6       = 0xF2,
-    Mode7       = 0xF3,
-    Mode8       = 0xA1,
-    DimDown     = 0xF7,
-    DimUp       = 0xA5,
+/// Configure TIM5 to provide a 32-bit 1MHz timebase.
+fn setup_tim5(clocks: &stm32f4xx_hal::rcc::Clocks, tim5: &stm32::TIM5) {
+    // Divide clock to 1MHz, so that each tick is 1µs.
+    let psc = (clocks.pclk1().0 / 1_000_000) as u16;
+    tim5.psc.write(|w| w.psc().bits(psc - 1));
+
+    // Trigger update event.
+    tim5.egr.write(|w| w.ug().update());
+
+    // Enable TIM5.
+    tim5.cr1.write(|w| w.cen().enabled());
 }
 
-#[derive(Copy, Clone, Debug)]
-enum NecState {
-    Reset,
-    Addr { idx: usize, addr: u8, naddr: u8 },
-    Cmd  { idx: usize, cmd: u8,  ncmd: u8 },
-}
-
-struct NecDecoder {
-    state: NecState,
-    last_mark: Option<u16>,
-}
-
-impl NecDecoder {
-    const HEADER_MARK: i32 = 9000;
-    const HEADER_SPACE: i32 = 4500;
-    const BIT_MARK: i32 = 562;
-    const SPACE_0: i32 = 1687;
-    const SPACE_1: i32 = 562;
-    const TOL: i32 = 100;
-
-    pub const fn new() -> Self {
-        NecDecoder { state: NecState::Reset, last_mark: None }
-    }
-
-    /// Call when a mark pulse is received, with the width in µs.
-    pub fn mark(&mut self, width: u16) {
-        match self.last_mark {
-            Some(_) => self.reset(),
-            None    => self.last_mark = Some(width),
-        }
-    }
-
-    /// Call when a space pulse is received, with the total mark+space time in µs.
-    ///
-    /// If a valid command has been fully decoded, returns Some(u8).
-    pub fn space(&mut self, width: u16) -> Option<u8> {
-        match self.last_mark {
-            Some(mark) => {
-                self.last_mark = None;
-                self.process(mark as i32, (width - mark) as i32)
-            },
-            None => {
-                self.reset();
-                None
-            },
-        }
-    }
-
-    /// Call after a timeout to reset the decoder state.
-    pub fn reset(&mut self) {
-        self.state = NecState::Reset;
-        self.last_mark = None;
-    }
-
-    fn process_bit(mark: i32, space: i32) -> Option<u8> {
-        if (mark - Self::BIT_MARK).abs() < Self::TOL {
-            if (space - Self::SPACE_0).abs() < Self::TOL {
-                Some(0)
-            } else if (space - Self::SPACE_1).abs() < Self::TOL {
-                Some(1)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    fn process_word(mark: i32, space: i32, idx: usize, mut word: u8, mut nword: u8)
-        -> Option<(u8, u8)>
-    {
-        let bit = match Self::process_bit(mark, space) {
-            Some(bit) => bit,
-            None      => return None,
-        };
-        if idx < 8 {
-            word |= bit << idx;
-        } else {
-            nword |= bit << (idx - 8);
-        }
-        Some((word, nword))
-    }
-
-    fn process(&mut self, mark: i32, space: i32) -> Option<u8> {
-        //rprintln!("process state={:?} mark={} space={}", self.state, mark, space);
-        match self.state {
-            NecState::Reset => {
-                if ((mark  - Self::HEADER_MARK ).abs() < Self::TOL) &&
-                   ((space - Self::HEADER_SPACE).abs() < Self::TOL)
-                {
-                    self.state = NecState::Addr { idx: 0, addr: 0, naddr: 0 };
-                }
-            },
-            NecState::Addr { idx, addr, naddr } => {
-                let (addr, naddr) = match Self::process_word(mark, space, idx, addr, naddr) {
-                    Some((addr, naddr)) => (addr, naddr),
-                    None => { self.reset(); return None; },
-                };
-
-                if idx == 15 {
-                    if addr == !naddr {
-                        self.state = NecState::Cmd { idx: 0, cmd: 0, ncmd: 0 };
-                    } else {
-                        self.reset();
-                    }
-                } else {
-                    self.state = NecState::Addr { idx: idx + 1, addr, naddr };
-                }
-            },
-            NecState::Cmd { idx, cmd, ncmd  } => {
-                let (cmd, ncmd) = match Self::process_word(mark, space, idx, cmd, ncmd) {
-                    Some((cmd, ncmd)) => (cmd, ncmd),
-                    None => { self.reset(); return None; },
-                };
-
-                if idx == 15 {
-                    self.reset();
-                    if cmd == !ncmd {
-                        rprintln!("Got command: {:02X}", cmd);
-                        return Some(cmd);
-                    }
-                } else {
-                    self.state = NecState::Cmd { idx: idx + 1, cmd, ncmd };
-                }
-            },
-        }
-        None
-    }
-}
-
+/// We run an IR protocol decoder in the TIM3 interrupt handler,
+/// capturing the received pulse widths and decoding them to commands.
 #[interrupt]
 fn TIM3() {
-    static mut DECODER: NecDecoder = NecDecoder::new();
+    static mut DECODER: IRDecoder = IRDecoder::new();
 
     let ptr = stm32::TIM3::ptr();
 
@@ -283,11 +157,15 @@ fn TIM3() {
     )};
 
     if sr.uif().bit_is_set() {
+        // Reset decoder state machine on timer overflow.
+        // The timer is reset after each pulse, so an overflow means
+        // no edge was received for the entire timer period of 65ms.
         DECODER.reset();
     }
 
     if sr.cc1if().bit_is_set() {
         // Falling edge detected, indicating the end of a space pulse.
+        // The timer is re
         let cc1 = unsafe { (*ptr).ccr1.read().ccr().bits() };
         match DECODER.space(cc1) {
             Some(cmd) => match cmd {
@@ -307,38 +185,18 @@ fn TIM3() {
 }
 
 
-/// A simple SysTick-based Timer used to provide the RollingTimer
-/// required by Choreographer sequences.
+/// A Timer used to provide the RollingTimer required by Choreographer sequences.
 #[derive(Copy, Clone, Default)]
 struct Timer;
 
-impl Timer {
-    /// Initialise SysTick to provide a 24-bit downcounter.
-    ///
-    /// On STM32F4, with SysTick set to external clock, it runs at HCLK/8.
-    pub fn setup(mut syst: cortex_m::peripheral::SYST) {
-        syst.set_clock_source(cortex_m::peripheral::syst::SystClkSource::External);
-        syst.set_reload(0x00ff_ffff);
-        syst.clear_current();
-        syst.enable_counter();
-    }
-}
-
 impl RollingTimer for Timer {
     type Tick = u32;
-
-    // 48MHz/8 = 6MHz. Adjust if HCLK is changed from 48MHz.
-    const TICKS_PER_SECOND: Self::Tick = 6_000_000u32;
-
-    fn is_initialized(&self) -> bool { true }
-
-    fn get_ticks(&self) -> Self::Tick {
-        // Systick counts down, so reverse to count up instead.
-        0x00ff_ffff - cortex_m::peripheral::SYST::get_current()
+    const TICKS_PER_SECOND: Self::Tick = 1_000_000u32;
+    fn is_initialized(&self) -> bool {
+        unsafe { (*stm32::TIM5::ptr()).cr1.read().cen().bit_is_set() }
     }
 
-    fn ticks_since(&self, rhs: Self::Tick) -> Self::Tick {
-        // Wrap around after 24 bits, the size of the systick counter.
-        self.get_ticks().wrapping_sub(rhs) & 0x00ff_ffff
+    fn get_ticks(&self) -> Self::Tick {
+        unsafe { (*stm32::TIM5::ptr()).cnt.read().cnt().bits() }
     }
 }
