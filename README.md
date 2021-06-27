@@ -10,7 +10,7 @@ original, this version:
 
 [@GeekMomProjects]: https://twitter.com/GeekMomProjects/status/1269671840512794624
 
-The project is designed for SMT assembly by JLCPCB. Currently untested.
+The project is designed for complete SMT assembly by JLCPCB.
 
 ## Renders
 
@@ -26,7 +26,7 @@ The project is designed for SMT assembly by JLCPCB. Currently untested.
 
 Hardware designs licensed under the [CERN-OHL-P v2].
 
-[CERN-OHL-P v2]: cern_ohl_p_v2.txt
+[CERN-OHL-P v2]: LICENSE_CERN_OHL_P_v2.txt
 
 > You may redistribute and modify this documentation and make products
 > using it under the terms of the CERN-OHL-P v2 (https:/cern.ch/cern-ohl).
@@ -34,3 +34,7 @@ Hardware designs licensed under the [CERN-OHL-P v2].
 > WARRANTY, INCLUDING OF MERCHANTABILITY, SATISFACTORY QUALITY
 > AND FITNESS FOR A PARTICULAR PURPOSE. Please see the CERN-OHL-P v2
 > for applicable conditions
+
+Software licensed under the [Mozilla Public License].
+
+[Mozilla Public License]: LICENSE_MPL.txt
