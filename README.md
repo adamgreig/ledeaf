@@ -12,15 +12,13 @@ original, this version:
 
 The project is designed for complete SMT assembly by JLCPCB.
 
-## Renders
+<img src="media/001_lit_up.jpg" width="480px">
 
-![](triangle/top.png)
+<img src="media/002_PCBs.jpg" width="480px">
 
-![](triangle/bottom.png)
+<img src="triangle/top.png" width="240px"><img src="triangle/bottom.png" width="240pxpx">
 
-![](bridge/top.png)
-
-![](driver/top.png)
+<img src="bridge/top.png" width="240px"><img src="driver/top.png" width="240px">
 
 ## License
 
