@@ -24,7 +24,7 @@ const N_LEDS: usize = 9;
 const N_SPOKES: usize = 12;
 
 /// Brightness scaling factor.
-static BRIGHTNESS: AtomicU8 = AtomicU8::new(50);
+static BRIGHTNESS: AtomicU8 = AtomicU8::new(150);
 
 #[cortex_m_rt::entry]
 fn main() -> ! {
@@ -71,13 +71,16 @@ fn main() -> ! {
         led.set(&actions, LoopBehavior::LoopForever);
     }
 
+    let loop_timer = Timer {};
     loop {
-        // Set driver LED.
+        let t0 = loop_timer.get_ticks();
+
+        // Run driver LED sequence.
         if let Some(rgb) = driver_led.poll() {
             data[0] = rgb;
         }
 
-        // Set triangle LEDs.
+        // Run triangle LED sequences.
         for (led, entry) in leds.iter_mut().zip(&mut data[1..].iter_mut()) {
             if let Some(rgb) = led.poll() {
                 *entry = rgb;
@@ -85,13 +88,14 @@ fn main() -> ! {
         }
 
         // Write out LED data, at scaled brightness.
-        // Disable interrupt processing while we send the SPI data to
-        // prevent timing glitches.
+        // Disable interrupt processing while we send the SPI data to prevent timing glitches.
         let level = BRIGHTNESS.load(Ordering::Relaxed);
         cortex_m::interrupt::free(|_|
             ws.write(brightness(data.iter().cloned(), level)).ok()
         );
-        cortex_m::asm::delay(20_000);
+
+        // Maintain 100fps; no need to render any faster than that.
+        while loop_timer.millis_since(t0) < 10 {}
     }
 }
 
