@@ -168,6 +168,7 @@ dependencies = [
  "cortex-m-rt",
  "embedded-hal",
  "groundhog",
+ "heapless",
  "panic-halt",
  "smart-leds",
  "stm32f4xx-hal",

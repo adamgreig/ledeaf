@@ -2,6 +2,7 @@
 #![no_main]
 
 use panic_halt as _;
+use heapless::Vec;
 use stm32f4xx_hal::prelude::*;
 use stm32f4xx_hal::spi::{Spi, NoSck, NoMiso};
 use stm32f4xx_hal::stm32;
@@ -37,8 +38,18 @@ impl RollingTimer for Timer {
     }
 }
 
+/// Number of LED triangles to drive.
+const N_LEDS: usize = 16;
+
+/// Number of colours on the colour wheel.
+const N_SPOKES: usize = 12;
+
+/// Brightness scaling factor.
+const BRIGHTNESS: u8 = 50;
+
 #[cortex_m_rt::entry]
 fn main() -> ! {
+    // Set up STM32 and peripherals.
     let dp = stm32::Peripherals::take().unwrap();
     let cp = cortex_m::Peripherals::take().unwrap();
     let rcc = dp.RCC.constrain();
@@ -48,16 +59,17 @@ fn main() -> ! {
     let led = gpiob.pb5.into_alternate_af5();
     let spi = Spi::spi1(dp.SPI1, (NoSck, NoMiso, led), ws2812_spi::MODE, 3_000_000.hz(), clocks);
     let mut ws = Ws2812::new(spi);
-    const N_LEDS: usize = 12;
-    let mut leds: [Sequence<Timer, 32>; N_LEDS] = Default::default();
-    let mut data: [RGB8; N_LEDS] = Default::default();
+
+    // Storage for LED patterns.
+    let mut leds: [Sequence<Timer, {N_SPOKES * 2}>; N_LEDS] = Default::default();
+    let mut driver_led: Sequence<Timer, 8> = Default::default();
+    let mut data: [RGB8; N_LEDS + 1] = Default::default();
 
     // Clear LEDs at startup.
     ws.write(data.iter().cloned()).ok();
     cortex_m::asm::delay(20_000);
 
     // Make a 10-colour wheel of hues.
-    const N_SPOKES: usize = 10;
     let mut wheel: [RGB8; N_SPOKES] = Default::default();
     for (idx, spoke) in wheel.iter_mut().enumerate() {
         let hue = ((idx * 255) / (N_SPOKES - 1)) as u8;
@@ -65,39 +77,30 @@ fn main() -> ! {
     }
 
     // Set LED scripts.
-    for (idx, led) in &mut leds[1..].iter_mut().enumerate() {
-        led.set(&[
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 9) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 9) % N_SPOKES]).for_ms(300).finish(),
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 8) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 8) % N_SPOKES]).for_ms(300).finish(),
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 7) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 7) % N_SPOKES]).for_ms(300).finish(),
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 6) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 6) % N_SPOKES]).for_ms(300).finish(),
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 5) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 5) % N_SPOKES]).for_ms(300).finish(),
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 4) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 4) % N_SPOKES]).for_ms(300).finish(),
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 3) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 3) % N_SPOKES]).for_ms(300).finish(),
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 2) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 2) % N_SPOKES]).for_ms(300).finish(),
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 1) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 1) % N_SPOKES]).for_ms(300).finish(),
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 0) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 0) % N_SPOKES]).for_ms(300).finish(),
-        ], LoopBehavior::LoopForever);
+    for (idx, led) in leds.iter_mut().enumerate() {
+        let mut actions: Vec<_, {N_SPOKES * 2}> = Vec::new();
+        for color in wheel.iter().cycle().skip(N_LEDS - idx).take(N_SPOKES) {
+            actions.push(ActionBuilder::new().once().seek().color(*color).for_ms(150).finish()).ok();
+            actions.push(ActionBuilder::new().once().solid().color(*color).for_ms(300).finish()).ok();
+        }
+        led.set(&actions[..], LoopBehavior::LoopForever);
     }
 
-    // Play LED scripts.
     loop {
-        for (led, entry) in leds.iter_mut().zip(data.iter_mut()) {
+        // Set driver LED.
+        if let Some(rgb) = driver_led.poll() {
+            data[0] = rgb;
+        }
+
+        // Set triangle LEDs.
+        for (led, entry) in leds.iter_mut().zip(&mut data[1..].iter_mut()) {
             if let Some(rgb) = led.poll() {
                 *entry = rgb;
             }
         }
-        ws.write(brightness(data.iter().cloned(), 50)).ok();
+
+        // Write out LED data, at reduced brightness.
+        ws.write(brightness(data.iter().cloned(), BRIGHTNESS)).ok();
         cortex_m::asm::delay(20_000);
     }
 }
