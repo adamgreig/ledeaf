@@ -2,7 +2,6 @@
 #![no_main]
 
 use panic_halt as _;
-use core::sync::atomic::{Ordering, AtomicU32};
 use stm32f4xx_hal::prelude::*;
 use stm32f4xx_hal::spi::{Spi, NoSck, NoMiso};
 use stm32f4xx_hal::stm32;
@@ -11,35 +10,31 @@ use smart_leds::{brightness, SmartLedsWrite, RGB8, hsv::{Hsv, hsv2rgb}};
 use choreographer::engine::{LoopBehavior, Sequence, ActionBuilder};
 use groundhog::RollingTimer;
 
-static TIME: AtomicU32 = AtomicU32::new(0);
-
 #[derive(Copy, Clone, Default)]
 struct Timer;
 
 impl Timer {
     pub fn setup(mut syst: cortex_m::peripheral::SYST) {
         syst.set_clock_source(cortex_m::peripheral::syst::SystClkSource::External);
-        syst.set_reload(60);
+        syst.set_reload(0x00ff_ffff);
         syst.clear_current();
         syst.enable_counter();
-        syst.enable_interrupt();
     }
 }
 
 impl RollingTimer for Timer {
     type Tick = u32;
-    const TICKS_PER_SECOND: Self::Tick = 100_000u32;
+    const TICKS_PER_SECOND: Self::Tick = 6_000_000u32;
 
     fn is_initialized(&self) -> bool { true }
 
     fn get_ticks(&self) -> Self::Tick {
-        TIME.load(Ordering::Relaxed)
+        0x00ff_ffff - cortex_m::peripheral::SYST::get_current()
     }
-}
 
-#[cortex_m_rt::exception]
-fn SysTick() {
-    TIME.fetch_add(1, Ordering::Relaxed);
+    fn ticks_since(&self, rhs: Self::Tick) -> Self::Tick {
+        self.get_ticks().wrapping_sub(rhs) & 0x00ff_ffff
+    }
 }
 
 #[cortex_m_rt::entry]
