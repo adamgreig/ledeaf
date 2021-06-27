@@ -2,6 +2,8 @@
 
 use core::convert::TryFrom;
 use stm32f4xx_hal::stm32;
+use groundhog::RollingTimer;
+use crate::timer::Timer;
 
 /// Configure TIM3 to capture rising and falling edges from an IR receiver.
 pub fn setup_tim3(clocks: &stm32f4xx_hal::rcc::Clocks, tim3: &stm32::TIM3) {
@@ -95,7 +97,7 @@ enum State {
 pub struct Decoder {
     state: State,
     last_mark: Option<u16>,
-    last_cmd: Option<u8>,
+    last_cmd: Option<(u32, u8)>,
 }
 
 impl Decoder {
@@ -171,18 +173,33 @@ impl Decoder {
     }
 
     fn process(&mut self, mark: i32, space: i32) -> Option<u8> {
+        // Discard stale last_cmds.
+        let timer = Timer {};
+        if let Some((t0, _)) = self.last_cmd {
+            if timer.millis_since(t0) > 200 {
+                self.last_cmd = None;
+            }
+        }
+
         match self.state {
             State::Reset => {
                 if ((mark  - Self::HEADER_MARK ).abs() < Self::TOL) &&
                    ((space - Self::HEADER_SPACE).abs() < Self::TOL)
                 {
+                    // Header received, prepare to receive an address.
                     self.state = State::Addr { idx: 0, addr: 0, naddr: 0 };
                 } else if ((mark  - Self::HEADER_MARK ).abs() < Self::TOL) &&
                           ((space - Self::REPEAT_SPACE).abs() < Self::TOL)
                 {
-                    return self.last_cmd;
+                    // Repeat command received, check if we have a recent command to repeat.
+                    if let Some((_, cmd)) = self.last_cmd {
+                        // Reset timeout and return the last command.
+                        self.last_cmd = Some((timer.get_ticks(), cmd));
+                        return Some(cmd);
+                    }
                 }
             },
+
             State::Addr { idx, addr, naddr } => {
                 let (addr, naddr) = match Self::process_word(mark, space, idx, addr, naddr) {
                     Some((addr, naddr)) => (addr, naddr),
@@ -199,6 +216,7 @@ impl Decoder {
                     self.state = State::Addr { idx: idx + 1, addr, naddr };
                 }
             },
+
             State::Cmd { idx, cmd, ncmd  } => {
                 let (cmd, ncmd) = match Self::process_word(mark, space, idx, cmd, ncmd) {
                     Some((cmd, ncmd)) => (cmd, ncmd),
@@ -208,8 +226,10 @@ impl Decoder {
                 if idx == 15 {
                     self.reset();
                     if cmd == !ncmd {
-                        self.last_cmd = Some(cmd);
-                        return self.last_cmd;
+                        // Store this command as our most recent command, in case
+                        // we receive a repeat command later.
+                        self.last_cmd = Some((timer.get_ticks(), cmd));
+                        return Some(cmd);
                     }
                 } else {
                     self.state = State::Cmd { idx: idx + 1, cmd, ncmd };
