@@ -2,4 +2,5 @@
 chip = "STM32F411RETx"
 
 [default.rtt]
-enabled = false
+enabled = true
+log_enabled = false
