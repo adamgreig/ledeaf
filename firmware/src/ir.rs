@@ -1,5 +1,74 @@
 //! NEC protocol IR decoding.
 
+use stm32f4xx_hal::stm32;
+
+/// Configure TIM3 to capture rising and falling edges from an IR receiver.
+pub fn setup_tim3(clocks: &stm32f4xx_hal::rcc::Clocks, tim3: &stm32::TIM3) {
+    // Enable interrupt on update, CC1, and CC2.
+    tim3.dier.write(|w| w.uie().enabled().cc1ie().enabled().cc2ie().enabled());
+    unsafe { cortex_m::peripheral::NVIC::unmask(stm32::Interrupt::TIM3) };
+
+    // Set up input capture from TI1 on both CC1 and CC2.
+    tim3.ccmr1_input().write(|w| w.cc1s().ti1().cc2s().ti1());
+
+    // Set CC1 to falling edge and CC2 to rising edge.
+    tim3.ccer.write(|w| w.cc1e().set_bit().cc1p().set_bit().cc2e().set_bit());
+
+    // Enable slave mode to reset on falling edge.
+    tim3.smcr.write(|w| w.ts().ti1fp1().sms().reset_mode());
+
+    // Divide clock to 1MHz, so that each tick is 1µs and we overflow every 65ms.
+    let psc = (clocks.pclk1().0 / 1_000_000) as u16;
+    tim3.psc.write(|w| w.psc().bits(psc - 1));
+
+    // Trigger update event.
+    tim3.egr.write(|w| w.ug().update());
+
+    // Enable counter, and set URS=1 to only generate updates on overflow,
+    // not on slave-mode resets.
+    tim3.cr1.write(|w| w.cen().enabled().urs().counter_only());
+}
+
+pub fn process_tim3(decoder: &mut Decoder) {
+    let ptr = stm32::TIM3::ptr();
+
+    // Clear interrupt bits to acknowledge the interrupt.
+    let sr = unsafe { (*ptr).sr.read() };
+    unsafe { (*ptr).sr.modify(|_, w|
+        w.uif().clear_bit().cc1if().clear_bit().cc2if().clear_bit()
+    )};
+
+    if sr.uif().bit_is_set() {
+        // Reset decoder state machine on timer overflow.
+        // The timer is reset after each pulse, so an overflow means
+        // no edge was received for the entire timer period of 65ms.
+        decoder.reset();
+    }
+
+    if sr.cc1if().bit_is_set() {
+        // Falling edge detected, indicating the end of a space pulse.
+        // The timer is re
+        let cc1 = unsafe { (*ptr).ccr1.read().ccr().bits() };
+        decoder.space(cc1);
+        /*
+        match decoder.space(cc1) {
+            Some(cmd) => match cmd {
+                0xF7 => { BRIGHTNESS.fetch_sub(5, Ordering::Relaxed); },
+                0xA5 => { BRIGHTNESS.fetch_add(5, Ordering::Relaxed); },
+                _    => (),
+            },
+            None => (),
+        }
+        */
+    }
+
+    if sr.cc2if().bit_is_set() {
+        // Rising edge detected, indicating the end of a mark pulse.
+        let cc2 = unsafe { (*ptr).ccr2.read().ccr().bits() };
+        decoder.mark(cc2);
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 #[repr(u8)]
 pub enum Command {

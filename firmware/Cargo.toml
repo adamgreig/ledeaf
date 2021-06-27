@@ -11,7 +11,7 @@ panic-halt = "0.2.0"
 embedded-hal = "0.2"
 smart-leds = "0.3.0"
 ws2812-spi = "0.4.0"
-choreographer = "0.0.3"
+choreographer = "0.0.4"
 groundhog = "0.2.5"
 heapless = "0.7.1"
 rtt-target = { version = "0.3.1", features = ["cortex-m"] }

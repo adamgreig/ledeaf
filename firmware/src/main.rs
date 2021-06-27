@@ -18,8 +18,10 @@ use groundhog::RollingTimer;
 use rtt_target::{rtt_init_print, rprintln};
 
 mod ir;
+mod timer;
 
-use ir::Decoder as IRDecoder;
+use ir::{setup_tim3, process_tim3, Decoder as IRDecoder};
+use timer::{setup_tim5, Timer};
 
 /// Number of LED triangles to drive.
 const N_LEDS: usize = 9;
@@ -102,101 +104,10 @@ fn main() -> ! {
     }
 }
 
-/// Configure TIM3 to capture rising and falling edges from an IR receiver.
-fn setup_tim3(clocks: &stm32f4xx_hal::rcc::Clocks, tim3: &stm32::TIM3) {
-    // Enable interrupt on update, CC1, and CC2.
-    tim3.dier.write(|w| w.uie().enabled().cc1ie().enabled().cc2ie().enabled());
-    unsafe { cortex_m::peripheral::NVIC::unmask(stm32::Interrupt::TIM3) };
-
-    // Set up input capture from TI1 on both CC1 and CC2.
-    tim3.ccmr1_input().write(|w| w.cc1s().ti1().cc2s().ti1());
-
-    // Set CC1 to falling edge and CC2 to rising edge.
-    tim3.ccer.write(|w| w.cc1e().set_bit().cc1p().set_bit().cc2e().set_bit());
-
-    // Enable slave mode to reset on falling edge.
-    tim3.smcr.write(|w| w.ts().ti1fp1().sms().reset_mode());
-
-    // Divide clock to 1MHz, so that each tick is 1µs and we overflow every 65ms.
-    let psc = (clocks.pclk1().0 / 1_000_000) as u16;
-    tim3.psc.write(|w| w.psc().bits(psc - 1));
-
-    // Trigger update event.
-    tim3.egr.write(|w| w.ug().update());
-
-    // Enable counter, and set URS=1 to only generate updates on overflow,
-    // not on slave-mode resets.
-    tim3.cr1.write(|w| w.cen().enabled().urs().counter_only());
-}
-
-/// Configure TIM5 to provide a 32-bit 1MHz timebase.
-fn setup_tim5(clocks: &stm32f4xx_hal::rcc::Clocks, tim5: &stm32::TIM5) {
-    // Divide clock to 1MHz, so that each tick is 1µs.
-    let psc = (clocks.pclk1().0 / 1_000_000) as u16;
-    tim5.psc.write(|w| w.psc().bits(psc - 1));
-
-    // Trigger update event.
-    tim5.egr.write(|w| w.ug().update());
-
-    // Enable TIM5.
-    tim5.cr1.write(|w| w.cen().enabled());
-}
-
 /// We run an IR protocol decoder in the TIM3 interrupt handler,
 /// capturing the received pulse widths and decoding them to commands.
 #[interrupt]
 fn TIM3() {
     static mut DECODER: IRDecoder = IRDecoder::new();
-
-    let ptr = stm32::TIM3::ptr();
-
-    // Clear interrupt bits to acknowledge the interrupt.
-    let sr = unsafe { (*ptr).sr.read() };
-    unsafe { (*ptr).sr.modify(|_, w|
-        w.uif().clear_bit().cc1if().clear_bit().cc2if().clear_bit()
-    )};
-
-    if sr.uif().bit_is_set() {
-        // Reset decoder state machine on timer overflow.
-        // The timer is reset after each pulse, so an overflow means
-        // no edge was received for the entire timer period of 65ms.
-        DECODER.reset();
-    }
-
-    if sr.cc1if().bit_is_set() {
-        // Falling edge detected, indicating the end of a space pulse.
-        // The timer is re
-        let cc1 = unsafe { (*ptr).ccr1.read().ccr().bits() };
-        match DECODER.space(cc1) {
-            Some(cmd) => match cmd {
-                0xF7 => { BRIGHTNESS.fetch_sub(5, Ordering::Relaxed); },
-                0xA5 => { BRIGHTNESS.fetch_add(5, Ordering::Relaxed); },
-                _    => (),
-            },
-            None => (),
-        }
-    }
-
-    if sr.cc2if().bit_is_set() {
-        // Rising edge detected, indicating the end of a mark pulse.
-        let cc2 = unsafe { (*ptr).ccr2.read().ccr().bits() };
-        DECODER.mark(cc2);
-    }
-}
-
-
-/// A Timer used to provide the RollingTimer required by Choreographer sequences.
-#[derive(Copy, Clone, Default)]
-struct Timer;
-
-impl RollingTimer for Timer {
-    type Tick = u32;
-    const TICKS_PER_SECOND: Self::Tick = 1_000_000u32;
-    fn is_initialized(&self) -> bool {
-        unsafe { (*stm32::TIM5::ptr()).cr1.read().cen().bit_is_set() }
-    }
-
-    fn get_ticks(&self) -> Self::Tick {
-        unsafe { (*stm32::TIM5::ptr()).cnt.read().cnt().bits() }
-    }
+    process_tim3(DECODER);
 }

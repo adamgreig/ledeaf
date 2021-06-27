@@ -61,9 +61,9 @@ dependencies = [
 
 [[package]]
 name = "choreographer"
-version = "0.0.3"
+version = "0.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6b34ea4863916e208d6286ecaacd6fce9deb347ba750f6e4d40fcb8274258fc"
+checksum = "74c23e2df6f4cd1cad614d5fdde86968c64f0c0668163600931df5dc73db04a1"
 dependencies = [
  "groundhog",
  "heapless",
