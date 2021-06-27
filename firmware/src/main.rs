@@ -46,8 +46,8 @@ fn main() -> ! {
     setup_tim3(&clocks, &dp.TIM3);
 
     // Storage for LED patterns.
-    let mut leds: [Sequence<Timer, {N_SPOKES * 2}>; N_LEDS] = Default::default();
-    let mut driver_led: Sequence<Timer, 8> = Default::default();
+    let mut leds: [Sequence<Timer, {N_SPOKES * 2}>; N_LEDS] = Sequence::new_array();
+    let mut driver_led: Sequence<Timer, 8> = Sequence::empty();
     let mut data: [RGB8; 1 + N_LEDS] = Default::default();
 
     // Clear LEDs at startup.
