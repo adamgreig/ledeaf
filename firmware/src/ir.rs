@@ -1,5 +1,6 @@
 //! NEC protocol IR decoding.
 
+use core::convert::TryFrom;
 use stm32f4xx_hal::stm32;
 
 /// Configure TIM3 to capture rising and falling edges from an IR receiver.
@@ -29,7 +30,7 @@ pub fn setup_tim3(clocks: &stm32f4xx_hal::rcc::Clocks, tim3: &stm32::TIM3) {
     tim3.cr1.write(|w| w.cen().enabled().urs().counter_only());
 }
 
-pub fn process_tim3(decoder: &mut Decoder) {
+pub fn process_tim3(decoder: &mut Decoder, mut producer: heapless::spsc::Producer<Command, 8>) {
     let ptr = stm32::TIM3::ptr();
 
     // Clear interrupt bits to acknowledge the interrupt.
@@ -45,31 +46,25 @@ pub fn process_tim3(decoder: &mut Decoder) {
         decoder.reset();
     }
 
-    if sr.cc1if().bit_is_set() {
-        // Falling edge detected, indicating the end of a space pulse.
-        // The timer is re
-        let cc1 = unsafe { (*ptr).ccr1.read().ccr().bits() };
-        decoder.space(cc1);
-        /*
-        match decoder.space(cc1) {
-            Some(cmd) => match cmd {
-                0xF7 => { BRIGHTNESS.fetch_sub(5, Ordering::Relaxed); },
-                0xA5 => { BRIGHTNESS.fetch_add(5, Ordering::Relaxed); },
-                _    => (),
-            },
-            None => (),
-        }
-        */
-    }
-
     if sr.cc2if().bit_is_set() {
         // Rising edge detected, indicating the end of a mark pulse.
         let cc2 = unsafe { (*ptr).ccr2.read().ccr().bits() };
         decoder.mark(cc2);
     }
+
+    if sr.cc1if().bit_is_set() {
+        // Falling edge detected, indicating the end of a space pulse.
+        // The timer is re
+        let cc1 = unsafe { (*ptr).ccr1.read().ccr().bits() };
+        if let Some(cmd) = decoder.space(cc1) {
+            if let Ok(cmd) = Command::try_from(cmd) {
+                producer.enqueue(cmd).ok();
+            }
+        }
+    }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, num_enum::IntoPrimitive, num_enum::TryFromPrimitive)]
 #[repr(u8)]
 pub enum Command {
     On          = 0xBA,
@@ -105,7 +100,7 @@ impl Decoder {
     const BIT_MARK: i32 = 562;
     const SPACE_0: i32 = 1687;
     const SPACE_1: i32 = 562;
-    const TOL: i32 = 100;
+    const TOL: i32 = 150;
 
     pub const fn new() -> Self {
         Self { state: State::Reset, last_mark: None }

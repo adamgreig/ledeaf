@@ -14,3 +14,4 @@ This directory contains the PCB design for the driver board.
 * Combine BOOTLOAD and PATTERN buttons into one (wire BOOT0 up to a GPIO)
   to reduce BOM count.
 * Investigate cheaper STM32 and oscillator.
+* Add light sensor to allow automatically scaling brightness.
