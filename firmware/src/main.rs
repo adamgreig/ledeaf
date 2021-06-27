@@ -2,13 +2,16 @@
 #![no_main]
 
 use panic_halt as _;
+use core::sync::atomic::{Ordering, AtomicU32};
 use stm32f4xx_hal::prelude::*;
 use stm32f4xx_hal::spi::{Spi, NoSck, NoMiso};
 use stm32f4xx_hal::stm32;
 use ws2812_spi::Ws2812;
-use smart_leds::{brightness, SmartLedsWrite, RGB8};
-use choreographer::{engine::{LoopBehavior, Sequence}, script};
+use smart_leds::{brightness, SmartLedsWrite, RGB8, hsv::{Hsv, hsv2rgb}};
+use choreographer::engine::{LoopBehavior, Sequence, ActionBuilder};
 use groundhog::RollingTimer;
+
+static TIME: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Copy, Clone, Default)]
 struct Timer;
@@ -16,19 +19,27 @@ struct Timer;
 impl Timer {
     pub fn setup(mut syst: cortex_m::peripheral::SYST) {
         syst.set_clock_source(cortex_m::peripheral::syst::SystClkSource::External);
-        syst.set_reload(0x00ff_ffff);
+        syst.set_reload(60);
         syst.clear_current();
         syst.enable_counter();
+        syst.enable_interrupt();
     }
 }
 
 impl RollingTimer for Timer {
     type Tick = u32;
-    const TICKS_PER_SECOND: Self::Tick = 6_000_000u32;
+    const TICKS_PER_SECOND: Self::Tick = 100_000u32;
+
     fn is_initialized(&self) -> bool { true }
+
     fn get_ticks(&self) -> Self::Tick {
-        0x00ff_ffff - cortex_m::peripheral::SYST::get_current()
+        TIME.load(Ordering::Relaxed)
     }
+}
+
+#[cortex_m_rt::exception]
+fn SysTick() {
+    TIME.fetch_add(1, Ordering::Relaxed);
 }
 
 #[cortex_m_rt::entry]
@@ -50,17 +61,38 @@ fn main() -> ! {
     ws.write(data.iter().cloned()).ok();
     cortex_m::asm::delay(20_000);
 
+    // Make a 10-colour wheel of hues.
+    const N_SPOKES: usize = 10;
+    let mut wheel: [RGB8; N_SPOKES] = Default::default();
+    for (idx, spoke) in wheel.iter_mut().enumerate() {
+        let hue = ((idx * 255) / (N_SPOKES - 1)) as u8;
+        *spoke = hsv2rgb(Hsv { hue, sat: 255, val: 255 });
+    }
+
     // Set LED scripts.
-    for (_idx, led) in leds.iter_mut().enumerate() {
-        led.set(&script! {
-            | action | color    | duration_ms | period_ms_f | phase_offset_ms | repeat |
-            | seek   | RED      |         200 |         0.0 |               0 | once   |
-            | seek   | YELLOW   |         200 |         0.0 |               0 | once   |
-            | seek   | GREEN    |         200 |         0.0 |               0 | once   |
-            | seek   | CYAN     |         200 |         0.0 |               0 | once   |
-            | seek   | BLUE     |         200 |         0.0 |               0 | once   |
-            | seek   | MAGENTA  |         200 |         0.0 |               0 | once   |
-        }, LoopBehavior::LoopForever);
+    for (idx, led) in leds.iter_mut().enumerate() {
+        led.set(&[
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 0) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 0) % N_SPOKES]).for_ms(300).finish(),
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 1) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 1) % N_SPOKES]).for_ms(300).finish(),
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 2) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 2) % N_SPOKES]).for_ms(300).finish(),
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 3) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 3) % N_SPOKES]).for_ms(300).finish(),
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 4) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 4) % N_SPOKES]).for_ms(300).finish(),
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 5) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 5) % N_SPOKES]).for_ms(300).finish(),
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 6) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 6) % N_SPOKES]).for_ms(300).finish(),
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 7) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 7) % N_SPOKES]).for_ms(300).finish(),
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 8) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 8) % N_SPOKES]).for_ms(300).finish(),
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 9) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 9) % N_SPOKES]).for_ms(300).finish(),
+        ], LoopBehavior::LoopForever);
     }
 
     // Play LED scripts.
