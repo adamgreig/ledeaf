@@ -5,7 +5,7 @@ original, this version:
 
 * is drawn from scratch in KiCad
 * uses the attaching bolts for electrical contact, instead of spring contacts
-* only requires the front acrylic sheet
+* only requires one acrylic sheet per triangle
 * all LEDs on each panel are driven by the same input data
 
 [@GeekMomProjects]: https://twitter.com/GeekMomProjects/status/1269671840512794624
@@ -36,3 +36,7 @@ Hardware designs licensed under the [CERN-OHL-P v2].
 Software licensed under the [Mozilla Public License].
 
 [Mozilla Public License]: LICENSE_MPL.txt
+
+> This Source Code Form is subject to the terms of the Mozilla Public
+> License, v. 2.0. If a copy of the MPL was not distributed with this
+> file, You can obtain one at https://mozilla.org/MPL/2.0/.
