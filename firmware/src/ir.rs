@@ -95,18 +95,20 @@ enum State {
 pub struct Decoder {
     state: State,
     last_mark: Option<u16>,
+    last_cmd: Option<u8>,
 }
 
 impl Decoder {
     const HEADER_MARK: i32 = 9000;
     const HEADER_SPACE: i32 = 4500;
+    const REPEAT_SPACE: i32 = 2250;
     const BIT_MARK: i32 = 562;
     const SPACE_0: i32 = 1687;
     const SPACE_1: i32 = 562;
     const TOL: i32 = 150;
 
     pub const fn new() -> Self {
-        Self { state: State::Reset, last_mark: None }
+        Self { state: State::Reset, last_mark: None, last_cmd: None }
     }
 
     /// Call when a mark pulse is received, with the width in µs.
@@ -169,13 +171,16 @@ impl Decoder {
     }
 
     fn process(&mut self, mark: i32, space: i32) -> Option<u8> {
-        //rprintln!("process state={:?} mark={} space={}", self.state, mark, space);
         match self.state {
             State::Reset => {
                 if ((mark  - Self::HEADER_MARK ).abs() < Self::TOL) &&
                    ((space - Self::HEADER_SPACE).abs() < Self::TOL)
                 {
                     self.state = State::Addr { idx: 0, addr: 0, naddr: 0 };
+                } else if ((mark  - Self::HEADER_MARK ).abs() < Self::TOL) &&
+                          ((space - Self::REPEAT_SPACE).abs() < Self::TOL)
+                {
+                    return self.last_cmd;
                 }
             },
             State::Addr { idx, addr, naddr } => {
@@ -203,7 +208,8 @@ impl Decoder {
                 if idx == 15 {
                     self.reset();
                     if cmd == !ncmd {
-                        return Some(cmd);
+                        self.last_cmd = Some(cmd);
+                        return self.last_cmd;
                     }
                 } else {
                     self.state = State::Cmd { idx: idx + 1, cmd, ncmd };
