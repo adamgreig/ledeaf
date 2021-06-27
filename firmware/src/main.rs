@@ -49,7 +49,7 @@ fn main() -> ! {
     let spi = Spi::spi1(dp.SPI1, (NoSck, NoMiso, led), ws2812_spi::MODE, 3_000_000.hz(), clocks);
     let mut ws = Ws2812::new(spi);
     const N_LEDS: usize = 12;
-    let mut leds: [Sequence<Timer, 8>; N_LEDS] = Default::default();
+    let mut leds: [Sequence<Timer, 32>; N_LEDS] = Default::default();
     let mut data: [RGB8; N_LEDS] = Default::default();
 
     // Clear LEDs at startup.
@@ -65,28 +65,28 @@ fn main() -> ! {
     }
 
     // Set LED scripts.
-    for (idx, led) in leds.iter_mut().enumerate() {
+    for (idx, led) in &mut leds[1..].iter_mut().enumerate() {
         led.set(&[
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 0) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 0) % N_SPOKES]).for_ms(300).finish(),
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 1) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 1) % N_SPOKES]).for_ms(300).finish(),
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 2) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 2) % N_SPOKES]).for_ms(300).finish(),
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 3) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 3) % N_SPOKES]).for_ms(300).finish(),
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 4) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 4) % N_SPOKES]).for_ms(300).finish(),
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 5) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 5) % N_SPOKES]).for_ms(300).finish(),
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 6) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 6) % N_SPOKES]).for_ms(300).finish(),
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 7) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 7) % N_SPOKES]).for_ms(300).finish(),
-            ActionBuilder::new().once().seek() .color(wheel[(idx + 8) % N_SPOKES]).for_ms(150).finish(),
-            ActionBuilder::new().once().solid().color(wheel[(idx + 8) % N_SPOKES]).for_ms(300).finish(),
             ActionBuilder::new().once().seek() .color(wheel[(idx + 9) % N_SPOKES]).for_ms(150).finish(),
             ActionBuilder::new().once().solid().color(wheel[(idx + 9) % N_SPOKES]).for_ms(300).finish(),
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 8) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 8) % N_SPOKES]).for_ms(300).finish(),
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 7) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 7) % N_SPOKES]).for_ms(300).finish(),
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 6) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 6) % N_SPOKES]).for_ms(300).finish(),
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 5) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 5) % N_SPOKES]).for_ms(300).finish(),
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 4) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 4) % N_SPOKES]).for_ms(300).finish(),
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 3) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 3) % N_SPOKES]).for_ms(300).finish(),
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 2) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 2) % N_SPOKES]).for_ms(300).finish(),
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 1) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 1) % N_SPOKES]).for_ms(300).finish(),
+            ActionBuilder::new().once().seek() .color(wheel[(idx + 0) % N_SPOKES]).for_ms(150).finish(),
+            ActionBuilder::new().once().solid().color(wheel[(idx + 0) % N_SPOKES]).for_ms(300).finish(),
         ], LoopBehavior::LoopForever);
     }
 
