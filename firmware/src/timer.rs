@@ -9,6 +9,9 @@ pub fn setup_tim5(clocks: &stm32f4xx_hal::rcc::Clocks, tim5: &stm32::TIM5) {
     let psc = (clocks.pclk1().0 / 1_000_000) as u16;
     tim5.psc.write(|w| w.psc().bits(psc - 1));
 
+    // Set ARR to max.
+    tim5.arr.write(|w| w.arr().bits(0xFFFF_FFFF));
+
     // Trigger update event.
     tim5.egr.write(|w| w.ug().update());
 

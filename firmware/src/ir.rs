@@ -22,6 +22,9 @@ pub fn setup_tim3(clocks: &stm32f4xx_hal::rcc::Clocks, tim3: &stm32::TIM3) {
     let psc = (clocks.pclk1().0 / 1_000_000) as u16;
     tim3.psc.write(|w| w.psc().bits(psc - 1));
 
+    // Set ARR to max.
+    tim3.arr.write(|w| w.arr().bits(0xFFFF));
+
     // Trigger update event.
     tim3.egr.write(|w| w.ug().update());
 
