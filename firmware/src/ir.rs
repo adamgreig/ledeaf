@@ -72,26 +72,38 @@ pub fn process_tim3(decoder: &mut Decoder, mut producer: heapless::spsc::Produce
 #[derive(Copy, Clone, Debug, num_enum::IntoPrimitive, num_enum::TryFromPrimitive)]
 #[repr(u8)]
 pub enum Command {
-    On          = 0xBA,
-    Off         = 0xB8,
-    Timer       = 0xB9,
-    Mode1       = 0xBB,
-    Mode2       = 0xBC,
-    Mode3       = 0xF8,
-    Mode4       = 0xF6,
-    Mode5       = 0xE9,
-    Mode6       = 0xF2,
-    Mode7       = 0xF3,
-    Mode8       = 0xA1,
-    DimDown     = 0xF7,
-    DimUp       = 0xA5,
+    DimUp       = 0x00,
+    DimDown     = 0x01,
+    Off         = 0x02,
+    On          = 0x03,
+    Red         = 0x04,
+    Green       = 0x05,
+    Blue        = 0x06,
+    White       = 0x07,
+    LightRed    = 0x08,
+    LightGreen  = 0x09,
+    LightBlue   = 0x0A,
+    Flash       = 0x0B,
+    Orange      = 0x0C,
+    Cyan        = 0x0D,
+    Purple      = 0x0E,
+    Strobe      = 0x0F,
+    LightOrange = 0x10,
+    Cerulean    = 0x11,
+    LightPurple = 0x12,
+    Fade        = 0x13,
+    Yellow      = 0x14,
+    SeaGreen    = 0x15,
+    Pink        = 0x16,
+    Smooth      = 0x17,
+
 }
 
 #[derive(Copy, Clone, Debug)]
 enum State {
     Reset,
-    Addr { idx: usize, addr: u8, naddr: u8 },
-    Cmd  { idx: usize, cmd: u8,  ncmd: u8 },
+    Addr { idx: usize, addr: u16 },
+    Cmd  { idx: usize, cmd: u16 },
 }
 
 pub struct Decoder {
@@ -107,7 +119,8 @@ impl Decoder {
     const BIT_MARK: i32 = 562;
     const SPACE_0: i32 = 1687;
     const SPACE_1: i32 = 562;
-    const TOL: i32 = 150;
+    const HEADER_TOL: i32 = 300;
+    const BIT_TOL: i32 = 150;
 
     pub const fn new() -> Self {
         Self { state: State::Reset, last_mark: None, last_cmd: None }
@@ -143,11 +156,11 @@ impl Decoder {
         self.last_mark = None;
     }
 
-    fn process_bit(mark: i32, space: i32) -> Option<u8> {
-        if (mark - Self::BIT_MARK).abs() < Self::TOL {
-            if (space - Self::SPACE_0).abs() < Self::TOL {
+    fn process_bit(mark: i32, space: i32) -> Option<u16> {
+        if (mark - Self::BIT_MARK).abs() < Self::BIT_TOL {
+            if (space - Self::SPACE_0).abs() < Self::BIT_TOL {
                 Some(0)
-            } else if (space - Self::SPACE_1).abs() < Self::TOL {
+            } else if (space - Self::SPACE_1).abs() < Self::BIT_TOL {
                 Some(1)
             } else {
                 None
@@ -157,19 +170,15 @@ impl Decoder {
         }
     }
 
-    fn process_word(mark: i32, space: i32, idx: usize, mut word: u8, mut nword: u8)
-        -> Option<(u8, u8)>
+    fn process_word(mark: i32, space: i32, idx: usize, mut word: u16)
+        -> Option<u16>
     {
         let bit = match Self::process_bit(mark, space) {
             Some(bit) => bit,
             None      => return None,
         };
-        if idx < 8 {
-            word |= bit << idx;
-        } else {
-            nword |= bit << (idx - 8);
-        }
-        Some((word, nword))
+        word |= bit << idx;
+        Some(word)
     }
 
     fn process(&mut self, mark: i32, space: i32) -> Option<u8> {
@@ -183,13 +192,13 @@ impl Decoder {
 
         match self.state {
             State::Reset => {
-                if ((mark  - Self::HEADER_MARK ).abs() < Self::TOL) &&
-                   ((space - Self::HEADER_SPACE).abs() < Self::TOL)
+                if ((mark  - Self::HEADER_MARK ).abs() < Self::HEADER_TOL) &&
+                   ((space - Self::HEADER_SPACE).abs() < Self::HEADER_TOL)
                 {
                     // Header received, prepare to receive an address.
-                    self.state = State::Addr { idx: 0, addr: 0, naddr: 0 };
-                } else if ((mark  - Self::HEADER_MARK ).abs() < Self::TOL) &&
-                          ((space - Self::REPEAT_SPACE).abs() < Self::TOL)
+                    self.state = State::Addr { idx: 0, addr: 0 };
+                } else if ((mark  - Self::HEADER_MARK ).abs() < Self::HEADER_TOL) &&
+                          ((space - Self::REPEAT_SPACE).abs() < Self::HEADER_TOL)
                 {
                     // Repeat command received, check if we have a recent command to repeat.
                     if let Some((_, cmd)) = self.last_cmd {
@@ -200,39 +209,39 @@ impl Decoder {
                 }
             },
 
-            State::Addr { idx, addr, naddr } => {
-                let (addr, naddr) = match Self::process_word(mark, space, idx, addr, naddr) {
-                    Some((addr, naddr)) => (addr, naddr),
+            State::Addr { idx, addr } => {
+                let addr = match Self::process_word(mark, space, idx, addr) {
+                    Some(addr) => addr,
                     None => { self.reset(); return None; },
                 };
 
                 if idx == 15 {
-                    if addr == !naddr {
-                        self.state = State::Cmd { idx: 0, cmd: 0, ncmd: 0 };
+                    if addr == 0x10FF {
+                        self.state = State::Cmd { idx: 0, cmd: 0 };
                     } else {
                         self.reset();
                     }
                 } else {
-                    self.state = State::Addr { idx: idx + 1, addr, naddr };
+                    self.state = State::Addr { idx: idx + 1, addr };
                 }
             },
 
-            State::Cmd { idx, cmd, ncmd  } => {
-                let (cmd, ncmd) = match Self::process_word(mark, space, idx, cmd, ncmd) {
-                    Some((cmd, ncmd)) => (cmd, ncmd),
+            State::Cmd { idx, cmd  } => {
+                let cmd = match Self::process_word(mark, space, idx, cmd) {
+                    Some(cmd) => cmd,
                     None => { self.reset(); return None; },
                 };
 
                 if idx == 15 {
                     self.reset();
-                    if cmd == !ncmd {
+                    if !((cmd >> 8) as u8) == ((cmd & 0xFF) as u8) {
                         // Store this command as our most recent command, in case
                         // we receive a repeat command later.
-                        self.last_cmd = Some((timer.get_ticks(), cmd));
-                        return Some(cmd);
+                        self.last_cmd = Some((timer.get_ticks(), (cmd >> 8) as u8));
+                        return Some((cmd >> 8) as u8);
                     }
                 } else {
-                    self.state = State::Cmd { idx: idx + 1, cmd, ncmd };
+                    self.state = State::Cmd { idx: idx + 1, cmd };
                 }
             },
         }

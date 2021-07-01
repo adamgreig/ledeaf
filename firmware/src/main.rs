@@ -11,10 +11,10 @@ use stm32f4xx_hal::prelude::*;
 use stm32f4xx_hal::spi::{Spi, NoSck, NoMiso};
 use stm32f4xx_hal::stm32::{self, interrupt};
 use ws2812_spi::Ws2812;
-use smart_leds::{brightness, SmartLedsWrite, RGB8, colors::BLACK};
+use smart_leds::{brightness, SmartLedsWrite, RGB8, colors::*};
 use choreographer::{script, engine::{LoopBehavior, Sequence}};
 use groundhog::RollingTimer;
-use rtt_target::{rtt_init_print, rprintln};
+use rtt_target::rtt_init_print;
 
 mod ir;
 mod timer;
@@ -25,7 +25,7 @@ use timer::{setup_tim5, Timer};
 use patterns::Pattern;
 
 /// Number of LED triangles to drive.
-const N_LEDS: usize = 9;
+const N_LEDS: usize = 11;
 
 /// Queue for moving received IR commands into the main thread.
 static mut IRCOMMAND_Q: Queue<IRCommand, 8> = Queue::new();
@@ -61,7 +61,7 @@ fn main() -> ! {
     cortex_m::asm::delay(20_000);
 
     // Start on the colour wheel pattern.
-    Pattern::Wheel.set(&mut leds);
+    Pattern::Strobe.set(&mut leds);
 
     let loop_timer = Timer {};
     let mut level = 100u8;
@@ -72,16 +72,43 @@ fn main() -> ! {
 
         // Process any incoming IR commands.
         if let Some(cmd) = ir_consumer.dequeue() {
-            match cmd {
-                IRCommand::On if !running   => { running = true; Pattern::Wheel.set(&mut leds); },
-                IRCommand::Off if running   => { running = false; Pattern::Off.set(&mut leds); },
-                IRCommand::Mode1            => { Pattern::Wheel.set(&mut leds); },
-                IRCommand::Mode2            => { Pattern::Smooth.set(&mut leds); },
-                IRCommand::DimUp            => { level = level.saturating_add(10); },
-                IRCommand::DimDown          => { level = level.saturating_sub(10); },
-                _                           => (),
+            if running {
+                use Pattern::Solid;
+                match cmd {
+                    IRCommand::DimUp                => { level = level.saturating_add(10); },
+                    IRCommand::DimDown              => { level = level.saturating_sub(10); },
+                    IRCommand::Strobe               => { Pattern::Strobe.set(&mut leds); },
+                    IRCommand::Flash                => { Pattern::Flash.set(&mut leds); },
+                    IRCommand::Smooth               => { Pattern::Smooth.set(&mut leds); },
+                    IRCommand::Fade                 => { Pattern::Fade.set(&mut leds); },
+                    IRCommand::Red                  => { Solid(RED).set(&mut leds); },
+                    IRCommand::Green                => { Solid(GREEN).set(&mut leds) },
+                    IRCommand::Blue                 => { Solid(BLUE).set(&mut leds) },
+                    IRCommand::White                => { Solid(WHITE).set(&mut leds) },
+                    IRCommand::LightRed             => { Solid(FIREBRICK).set(&mut leds) },
+                    IRCommand::LightGreen           => { Solid(LIME_GREEN).set(&mut leds) },
+                    IRCommand::LightBlue            => { Solid(DODGER_BLUE).set(&mut leds) },
+                    IRCommand::Orange               => { Solid(DARK_RED).set(&mut leds) },
+                    IRCommand::Cyan                 => { Solid(CYAN).set(&mut leds) },
+                    IRCommand::Purple               => { Solid(MAGENTA).set(&mut leds) },
+                    IRCommand::LightOrange          => { Solid(ORANGE_RED).set(&mut leds) },
+                    IRCommand::Cerulean             => { Solid(DEEP_SKY_BLUE).set(&mut leds) },
+                    IRCommand::LightPurple          => { Solid(PURPLE).set(&mut leds) },
+                    IRCommand::Yellow               => { Solid(ORANGE).set(&mut leds) },
+                    IRCommand::SeaGreen             => { Solid(SEA_GREEN).set(&mut leds) },
+                    IRCommand::Pink                 => { Solid(DEEP_PINK).set(&mut leds) },
+                    IRCommand::Off                  => {
+                        running = false;
+                        Pattern::Off.set(&mut leds);
+                    },
+                    _                               => (),
+                }
+            } else {
+                if matches!(cmd, IRCommand::On) {
+                    running = true;
+                    Pattern::Strobe.set(&mut leds);
+                }
             }
-
             driver_led.set(&script!(
                 |    action |  color | duration_ms | period_ms_f | phase_offset_ms | repeat |
                 |   fade_up |  GREEN |          50 |         0.0 |               0 |   once |
